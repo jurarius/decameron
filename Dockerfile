@@ -2,15 +2,15 @@
 FROM composer:2 AS composer_stage
 WORKDIR /app
 
-# Copiamos definiciones de PHP (para resolver dependencias)
+# Copiamos definiciones de PHP para resolver deps
 COPY composer.json composer.lock ./
-RUN composer install --no-dev --prefer-dist --no-interaction --no-progress --optimize-autoloader
+# 🔧 Evita correr scripts (no hay 'artisan' aún)
+RUN composer install --no-dev --no-scripts --prefer-dist --no-interaction --no-progress --optimize-autoloader
 
 # -------- Etapa 2: Node (build de Vite) --------
 FROM node:20-alpine AS node_stage
 WORKDIR /app
 COPY package.json package-lock.json* pnpm-lock.yaml* yarn.lock* .npmrc* ./
-# Si usas npm:
 RUN npm ci || npm install
 COPY . .
 RUN npm run build
@@ -27,7 +27,7 @@ RUN apk add --no-cache \
 
 WORKDIR /app
 
-# Copiamos la app
+# Copiamos TODO el proyecto
 COPY . .
 
 # Copiamos vendor desde la etapa de composer
@@ -36,7 +36,7 @@ COPY --from=composer_stage /app/vendor ./vendor
 # Copiamos build de Vite (public/build) desde la etapa de node
 COPY --from=node_stage /app/public/build ./public/build
 
-# Optimizaciones de Laravel para prod
+# Optimizaciones de Laravel para prod (ahora sí existe artisan)
 RUN php artisan config:clear || true \
  && php artisan route:clear || true \
  && php artisan view:clear || true \
@@ -44,14 +44,12 @@ RUN php artisan config:clear || true \
  && php artisan route:cache || true \
  && php artisan view:cache || true
 
-# Permisos para cache y storage
+# Permisos
 RUN chmod -R 775 storage bootstrap/cache || true
 
-# Render expone un $PORT (p.ej. 10000). Respetarlo.
+# Render expone $PORT (p.ej., 10000)
 ENV PORT=8080
 EXPOSE 8080
 
-# Al arrancar:
-# 1) Migraciones con --force (ignora interacción)
-# 2) Servidor embebido PHP sirviendo /public
+# Migraciones y servidor embebido
 CMD php artisan migrate --force && php -S 0.0.0.0:${PORT} -t public
